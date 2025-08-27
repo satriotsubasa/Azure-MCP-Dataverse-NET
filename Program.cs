@@ -17,6 +17,9 @@ var host = new HostBuilder()
         // Add memory caching
         services.AddMemoryCache();
         
+        // Add HTTP client for network tests
+        services.AddHttpClient();
+        
         // Add Dataverse connection with error handling
         services.AddSingleton<ServiceClient>(serviceProvider =>
         {
