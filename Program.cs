@@ -53,8 +53,8 @@ var host = new HostBuilder()
             }
         });
         
-        // Add Dataverse service with error handling
-        services.AddScoped<DataverseService>(serviceProvider =>
+        // Add Dataverse service with optional registration (don't fail startup)
+        services.AddScoped<DataverseService?>(serviceProvider =>
         {
             try
             {
@@ -67,7 +67,7 @@ var host = new HostBuilder()
             catch (Exception ex)
             {
                 Console.WriteLine($"Failed to initialize DataverseService: {ex.Message}");
-                throw;
+                return null; // Return null instead of throwing
             }
         });
     })

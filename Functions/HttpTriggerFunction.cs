@@ -11,11 +11,11 @@ namespace DataverseMcp.FunctionApp.Functions;
 public class HttpTriggerFunction
 {
     private readonly ILogger<HttpTriggerFunction> _logger;
-    private readonly DataverseService _dataverseService;
+    private readonly DataverseService? _dataverseService;
 
     public HttpTriggerFunction(
         ILogger<HttpTriggerFunction> logger,
-        DataverseService dataverseService)
+        DataverseService? dataverseService = null)
     {
         _logger = logger;
         _dataverseService = dataverseService;
@@ -265,6 +265,11 @@ public class HttpTriggerFunction
     {
         try
         {
+            if (_dataverseService == null)
+            {
+                return CreateMcpErrorResponse(req, requestId, -32603, "DataverseService not available - check connection configuration");
+            }
+
             if (!arguments.TryGetValue("query", out var queryObj) || queryObj is not string query)
             {
                 return CreateMcpErrorResponse(req, requestId, -32602, "Missing or invalid 'query' parameter");
@@ -296,6 +301,11 @@ public class HttpTriggerFunction
     {
         try
         {
+            if (_dataverseService == null)
+            {
+                return CreateMcpErrorResponse(req, requestId, -32603, "DataverseService not available - check connection configuration");
+            }
+
             if (!arguments.TryGetValue("id", out var idObj) || idObj is not string recordId)
             {
                 return CreateMcpErrorResponse(req, requestId, -32602, "Missing or invalid 'id' parameter");
@@ -329,10 +339,24 @@ public class HttpTriggerFunction
     {
         try
         {
+            if (_dataverseService == null)
+            {
+                var result = new
+                {
+                    test = "dataverse_connection",
+                    result = new { success = false, error = "DataverseService not available - check connection string and dependencies" },
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+                };
+
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(result);
+                return AddCorsHeaders(response);
+            }
+
             // Test SQL4CDS connection
             var testResult = await _dataverseService.ExecuteSqlQueryAsync("SELECT TOP 1 * FROM metadata.entity WHERE logicalname = 'contact'");
             
-            var result = new
+            var successResult = new
             {
                 test = "dataverse_connection",
                 result = new
@@ -344,9 +368,9 @@ public class HttpTriggerFunction
                 timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
             };
 
-            var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(result);
-            return AddCorsHeaders(response);
+            var successResponse = req.CreateResponse(HttpStatusCode.OK);
+            await successResponse.WriteAsJsonAsync(successResult);
+            return AddCorsHeaders(successResponse);
         }
         catch (Exception ex)
         {
@@ -368,9 +392,24 @@ public class HttpTriggerFunction
     {
         try
         {
+            if (_dataverseService == null)
+            {
+                var result = new
+                {
+                    test = "search_test",
+                    query,
+                    error = "DataverseService not available",
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+                };
+
+                var response = req.CreateResponse(HttpStatusCode.OK);
+                await response.WriteAsJsonAsync(result);
+                return AddCorsHeaders(response);
+            }
+
             var results = await _dataverseService.SearchMattersAsync(query, 10);
             
-            var result = new
+            var successResult = new
             {
                 test = "search_test",
                 query,
@@ -379,9 +418,9 @@ public class HttpTriggerFunction
                 timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
             };
 
-            var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(result);
-            return AddCorsHeaders(response);
+            var successResponse = req.CreateResponse(HttpStatusCode.OK);
+            await successResponse.WriteAsJsonAsync(successResult);
+            return AddCorsHeaders(successResponse);
         }
         catch (Exception ex)
         {
