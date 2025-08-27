@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 using Microsoft.PowerPlatform.Dataverse.Client;
 using MarkMpn.Sql4Cds.Engine;
 using DataverseMcp.FunctionApp.Services;
@@ -16,24 +17,59 @@ var host = new HostBuilder()
         // Add memory caching
         services.AddMemoryCache();
         
-        // Add Dataverse connection
+        // Add Dataverse connection with error handling
         services.AddSingleton<ServiceClient>(serviceProvider =>
         {
-            var connectionString = Environment.GetEnvironmentVariable("DATAVERSE_CONNECTIONSTRING") 
-                ?? throw new InvalidOperationException("DATAVERSE_CONNECTIONSTRING environment variable is not set.");
-            
-            return new ServiceClient(connectionString);
+            try
+            {
+                var connectionString = Environment.GetEnvironmentVariable("DATAVERSE_CONNECTIONSTRING");
+                if (string.IsNullOrEmpty(connectionString))
+                {
+                    throw new InvalidOperationException("DATAVERSE_CONNECTIONSTRING environment variable is not set.");
+                }
+                
+                return new ServiceClient(connectionString);
+            }
+            catch (Exception ex)
+            {
+                // Log error but don't crash the application
+                Console.WriteLine($"Failed to initialize ServiceClient: {ex.Message}");
+                throw;
+            }
         });
         
-        // Add SQL4CDS connection
+        // Add SQL4CDS connection with error handling  
         services.AddSingleton<Sql4CdsConnection>(serviceProvider =>
         {
-            var dataverseClient = serviceProvider.GetRequiredService<ServiceClient>();
-            return new Sql4CdsConnection(dataverseClient) { UseLocalTimeZone = true };
+            try
+            {
+                var dataverseClient = serviceProvider.GetRequiredService<ServiceClient>();
+                return new Sql4CdsConnection(dataverseClient) { UseLocalTimeZone = true };
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to initialize Sql4CdsConnection: {ex.Message}");
+                throw;
+            }
         });
         
-        // Add Dataverse service
-        services.AddScoped<DataverseService>();
+        // Add Dataverse service with error handling
+        services.AddScoped<DataverseService>(serviceProvider =>
+        {
+            try
+            {
+                return new DataverseService(
+                    serviceProvider.GetRequiredService<Sql4CdsConnection>(),
+                    serviceProvider.GetRequiredService<IMemoryCache>(),
+                    serviceProvider.GetRequiredService<ILogger<DataverseService>>()
+                );
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to initialize DataverseService: {ex.Message}");
+                throw;
+            }
+        });
     })
     .Build();
 
