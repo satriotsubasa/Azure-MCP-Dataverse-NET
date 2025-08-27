@@ -30,7 +30,9 @@ jobs:
         shell: pwsh
         run: |
           pushd './${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}'
-          dotnet build --configuration Release --output ./output
+          dotnet restore DataverseMcp.FunctionApp.csproj
+          dotnet build DataverseMcp.FunctionApp.csproj --configuration Release --no-restore
+          dotnet publish DataverseMcp.FunctionApp.csproj --configuration Release --no-build --output ./output
           popd
       
       - name: 'Run Azure Functions Action'
