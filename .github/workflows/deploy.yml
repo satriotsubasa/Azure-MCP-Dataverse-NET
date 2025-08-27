@@ -1,0 +1,74 @@
+# Build and deploy .NET project to Azure Function App - fa-auae-dsdev-lgca-dig03
+
+name: Build and deploy .NET project to Azure Function App - fa-auae-dsdev-lgca-dig03
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  AZURE_FUNCTIONAPP_PACKAGE_PATH: '.' # set this to the path to your web app project, defaults to the repository root
+  DOTNET_VERSION: '8.0.x' # set this to the .NET version to use
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore DataverseMcp.FunctionApp.csproj
+
+      - name: Build
+        run: dotnet build DataverseMcp.FunctionApp.csproj --configuration Release --no-restore
+
+      - name: Publish
+        run: dotnet publish DataverseMcp.FunctionApp.csproj --configuration Release --no-build --output ./output
+
+      - name: Upload artifact for deployment job
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotnet-app
+          path: ./output
+
+  deploy:
+    runs-on: windows-latest
+    needs: build
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Download artifact from build job
+        uses: actions/download-artifact@v4
+        with:
+          name: dotnet-app
+          path: ./output
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_128D4BFAF58B46F9A04C18D96E883872 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_A6D4530458B4487594204338C01FDA39 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_36EA9A5291C549B4BE8CE19DC7248193 }}
+
+      - name: 'Deploy to Azure Functions'
+        uses: Azure/functions-action@v1
+        id: deploy-to-function
+        with:
+          app-name: 'fa-auae-dsdev-lgca-dig03'
+          slot-name: 'Production'
+          package: './output'
+          scm-do-build-during-deployment: false
+          enable-oryx-build: false
