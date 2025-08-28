@@ -48,13 +48,13 @@ public class DataverseService
             var tablesResult = await ExecuteSqlQueryAsync(tableCheckQuery);
             _logger.LogInformation("Available tables result: {TablesResult}", tablesResult);
 
-            // Search legal matters table - using SQL4CDS pattern from working example
+            // Search legal matters table - using correct column names from schema
             var mattersQuery = $"""
                 SELECT TOP({limit}) 
-                    legalops_matterid, 
+                    legalops_mattersid, 
                     legalops_name, 
                     legalops_code, 
-                    legalops_description 
+                    legalops_descriptionbasic
                 FROM dbo.legalops_matters 
                 WHERE (legalops_name LIKE '%{query}%' OR legalops_code LIKE '%{query}%') 
                     AND (legalops_highlyconfidential IS NULL OR legalops_highlyconfidential != 1)
@@ -64,23 +64,6 @@ public class DataverseService
             var mattersResults = await ExecuteSqlQueryAsync(mattersQuery);
             _logger.LogInformation("Matters query result: {MattersResults}", mattersResults);
             results.AddRange(TransformToSearchResults(mattersResults, "matters"));
-
-            // Search IP matters table
-            var ipQuery = $"""
-                SELECT TOP({limit}) 
-                    legalops_mattersipid, 
-                    legalops_name, 
-                    legalops_code, 
-                    legalops_description 
-                FROM dbo.legalops_mattersip 
-                WHERE (legalops_name LIKE '%{query}%' OR legalops_code LIKE '%{query}%') 
-                    AND (legalops_highlyconfidential IS NULL OR legalops_highlyconfidential != 1)
-                """;
-
-            _logger.LogInformation("Executing IP matters query: {IpQuery}", ipQuery);
-            var ipResults = await ExecuteSqlQueryAsync(ipQuery);
-            _logger.LogInformation("IP matters query result: {IpResults}", ipResults);
-            results.AddRange(TransformToSearchResults(ipResults, "ip"));
 
             _logger.LogInformation("Found {Count} total results for query '{Query}'", results.Count, query);
             
@@ -102,12 +85,11 @@ public class DataverseService
 
         try
         {
-            string query = tableType.ToLower() == "matters"
-                ? $"SELECT * FROM dbo.legalops_matters WHERE legalops_matterid = '{{{recordId}}}'"
-                : $"SELECT * FROM dbo.legalops_mattersip WHERE legalops_mattersipid = '{{{recordId}}}'";
+            // Only support legalops_matters table with correct primary key column name
+            string query = $"SELECT * FROM dbo.legalops_matters WHERE legalops_mattersid = '{{{recordId}}}'";
 
             var results = await ExecuteSqlQueryAsync(query);
-            var transformedResults = TransformToSearchResults(results, tableType);
+            var transformedResults = TransformToSearchResults(results, "matters");
 
             return transformedResults.FirstOrDefault();
         }
@@ -241,7 +223,7 @@ public class DataverseService
             {
                 Id = ExtractRecordId(record, tableType),
                 Title = GetStringValue(record, "legalops_name") ?? "Untitled Matter",
-                Text = GetStringValue(record, "legalops_description") ?? GetStringValue(record, "legalops_code") ?? "No description available",
+                Text = GetStringValue(record, "legalops_descriptionbasic") ?? GetStringValue(record, "legalops_code") ?? "No description available",
                 Url = "https://fa-auae-dsdev-lgca-dig04.azurewebsites.net/api/HttpTrigger", // Will be updated when deployed
                 Metadata = new Dictionary<string, object>
                 {
@@ -262,7 +244,8 @@ public class DataverseService
 
     private string ExtractRecordId(Dictionary<string, object> record, string tableType)
     {
-        var idField = tableType == "matters" ? "legalops_matterid" : "legalops_mattersipid";
+        // Use correct primary key field name from schema
+        var idField = "legalops_mattersid";
         var id = GetStringValue(record, idField) ?? "";
         
         // Handle GUID format - remove curly braces if present
