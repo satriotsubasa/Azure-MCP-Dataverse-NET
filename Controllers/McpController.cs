@@ -93,7 +93,7 @@ public class McpController : ControllerBase
 
         return mcpRequest.Method switch
         {
-            "initialize" => Ok(await HandleInitialize(mcpRequest.Id)),
+            "initialize" => Ok(await HandleInitialize(mcpRequest.Id, mcpRequest)),
             "tools/list" => Ok(await HandleToolsList(mcpRequest.Id)),
             "tools/call" => Ok(await HandleToolsCall(mcpRequest.Id, mcpRequest.Params)),
             "notifications/initialized" => Ok(await HandleNotificationsInitialized(mcpRequest.Id)),
@@ -101,13 +101,25 @@ public class McpController : ControllerBase
         };
     }
 
-    private async Task<McpResponse> HandleInitialize(object? requestId)
+    private async Task<McpResponse> HandleInitialize(object? requestId, McpRequest? mcpRequest = null)
     {
         await Task.Delay(1); // Make async
 
+        // Use the protocol version from the client request, or default to latest
+        var clientProtocolVersion = "2025-03-26"; // Default
+        if (mcpRequest?.Params != null)
+        {
+            var paramsJson = JsonSerializer.Serialize(mcpRequest.Params);
+            var initParams = JsonSerializer.Deserialize<JsonElement>(paramsJson);
+            if (initParams.TryGetProperty("protocolVersion", out var versionElement))
+            {
+                clientProtocolVersion = versionElement.GetString() ?? "2025-03-26";
+            }
+        }
+
         var result = new McpInitializeResult
         {
-            ProtocolVersion = "2024-11-05",
+            ProtocolVersion = clientProtocolVersion,
             Capabilities = new McpCapabilities
             {
                 Tools = new { }
