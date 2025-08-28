@@ -221,9 +221,24 @@ public class McpController : ControllerBase
                 return CreateMcpErrorResponse(requestId, -32603, "DataverseService not available - check connection configuration");
             }
 
-            if (!arguments.TryGetValue("query", out var queryObj) || queryObj is not string query)
+            // Handle both string and JsonElement for the query parameter
+            if (!arguments.TryGetValue("query", out var queryObj))
             {
-                return CreateMcpErrorResponse(requestId, -32602, "Missing or invalid 'query' parameter");
+                return CreateMcpErrorResponse(requestId, -32602, "Missing 'query' parameter");
+            }
+
+            string query;
+            if (queryObj is string stringQuery)
+            {
+                query = stringQuery;
+            }
+            else if (queryObj is JsonElement jsonElement && jsonElement.ValueKind == JsonValueKind.String)
+            {
+                query = jsonElement.GetString() ?? "";
+            }
+            else
+            {
+                return CreateMcpErrorResponse(requestId, -32602, "Invalid 'query' parameter - must be string");
             }
 
             _logger.LogInformation("Executing search for: '{Query}'", query);
@@ -253,9 +268,24 @@ public class McpController : ControllerBase
                 return CreateMcpErrorResponse(requestId, -32603, "DataverseService not available - check connection configuration");
             }
 
-            if (!arguments.TryGetValue("id", out var idObj) || idObj is not string recordId)
+            // Handle both string and JsonElement for the id parameter
+            if (!arguments.TryGetValue("id", out var idObj))
             {
-                return CreateMcpErrorResponse(requestId, -32602, "Missing or invalid 'id' parameter");
+                return CreateMcpErrorResponse(requestId, -32602, "Missing 'id' parameter");
+            }
+
+            string recordId;
+            if (idObj is string stringId)
+            {
+                recordId = stringId;
+            }
+            else if (idObj is JsonElement jsonElement && jsonElement.ValueKind == JsonValueKind.String)
+            {
+                recordId = jsonElement.GetString() ?? "";
+            }
+            else
+            {
+                return CreateMcpErrorResponse(requestId, -32602, "Invalid 'id' parameter - must be string");
             }
 
             _logger.LogInformation("Fetching record: {RecordId}", recordId);
