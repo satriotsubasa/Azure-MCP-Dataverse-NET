@@ -190,6 +190,47 @@ Enterprise .NET Web API MCP server for Microsoft Dataverse using SQL4CDS. Focus 
         {
             new()
             {
+                Name = "search",
+                Description = "Search for legal matters in Dataverse. Returns IDs of matching matters.",
+                InputSchema = new McpInputSchema
+                {
+                    Type = "object",
+                    Properties = new Dictionary<string, McpProperty>
+                    {
+                        ["query"] = new McpProperty
+                        {
+                            Type = "string",
+                            Description = "Search query to find legal matters"
+                        },
+                        ["limit"] = new McpProperty
+                        {
+                            Type = "number",
+                            Description = "Maximum number of results to return (default 10)"
+                        }
+                    },
+                    Required = new[] { "query" }
+                }
+            },
+            new()
+            {
+                Name = "fetch",
+                Description = "Fetch a specific matter by ID. Takes an ID and returns the record.",
+                InputSchema = new McpInputSchema
+                {
+                    Type = "object",
+                    Properties = new Dictionary<string, McpProperty>
+                    {
+                        ["id"] = new McpProperty
+                        {
+                            Type = "string",
+                            Description = "The ID of the matter to fetch"
+                        }
+                    },
+                    Required = new[] { "id" }
+                }
+            },
+            new()
+            {
                 Name = "ExecuteSQL",
                 Description = "Executes an SQL query against Dataverse. Must be only SELECT statements.",
                 InputSchema = new McpInputSchema
@@ -368,6 +409,8 @@ Enterprise .NET Web API MCP server for Microsoft Dataverse using SQL4CDS. Focus 
 
             return toolParams.Name switch
             {
+                "search" => await HandleSearchTool(requestId, toolParams.Arguments),
+                "fetch" => await HandleFetchTool(requestId, toolParams.Arguments),
                 "ExecuteSQL" => await HandleExecuteSqlTool(requestId, toolParams.Arguments),
                 "GetMetadataForAllTables" => await HandleGetMetadataForAllTablesTool(requestId, toolParams.Arguments),
                 "GetMetadataByTableName" => await HandleGetMetadataByTableNameTool(requestId, toolParams.Arguments),
@@ -381,6 +424,98 @@ Enterprise .NET Web API MCP server for Microsoft Dataverse using SQL4CDS. Focus 
         {
             _logger.LogError(ex, "Error in tools/call");
             return CreateMcpErrorResponse(requestId, -32603, "Tool execution failed");
+        }
+    }
+
+    private async Task<McpResponse> HandleSearchTool(object? requestId, Dictionary<string, object> arguments)
+    {
+        try
+        {
+            if (_dataverseService == null)
+            {
+                return CreateMcpErrorResponse(requestId, -32603, "DataverseService not available - check connection configuration");
+            }
+
+            var query = ExtractStringParameter(arguments, "query");
+            var limit = ExtractIntParameter(arguments, "limit") ?? 10;
+
+            if (string.IsNullOrEmpty(query))
+            {
+                return CreateMcpErrorResponse(requestId, -32602, "Missing or invalid 'query' parameter");
+            }
+
+            _logger.LogInformation("Searching for matters with query: {Query}, limit: {Limit}", query, limit);
+
+            var searchResults = await _dataverseService.SearchMattersAsync(query, limit);
+
+            // Convert to the format ChatGPT expects - return IDs and metadata
+            var results = searchResults.Select(r => new
+            {
+                id = r.Id,
+                title = r.Title,
+                text = r.Text,
+                url = r.Url,
+                metadata = r.Metadata
+            }).ToArray();
+
+            return new McpResponse
+            {
+                Id = requestId,
+                Result = new
+                {
+                    results = results
+                }
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Search tool failed");
+            return CreateMcpErrorResponse(requestId, -32603, $"Search failed: {ex.Message}");
+        }
+    }
+
+    private async Task<McpResponse> HandleFetchTool(object? requestId, Dictionary<string, object> arguments)
+    {
+        try
+        {
+            if (_dataverseService == null)
+            {
+                return CreateMcpErrorResponse(requestId, -32603, "DataverseService not available - check connection configuration");
+            }
+
+            var id = ExtractStringParameter(arguments, "id");
+
+            if (string.IsNullOrEmpty(id))
+            {
+                return CreateMcpErrorResponse(requestId, -32602, "Missing or invalid 'id' parameter");
+            }
+
+            _logger.LogInformation("Fetching matter with ID: {Id}", id);
+
+            var result = await _dataverseService.FetchRecordAsync(id, "matters");
+
+            if (result == null)
+            {
+                return CreateMcpErrorResponse(requestId, -32603, $"Record with ID {id} not found");
+            }
+
+            return new McpResponse
+            {
+                Id = requestId,
+                Result = new
+                {
+                    id = result.Id,
+                    title = result.Title,
+                    text = result.Text,
+                    url = result.Url,
+                    metadata = result.Metadata
+                }
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Fetch tool failed");
+            return CreateMcpErrorResponse(requestId, -32603, $"Fetch failed: {ex.Message}");
         }
     }
 
