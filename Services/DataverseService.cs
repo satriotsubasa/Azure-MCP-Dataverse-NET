@@ -304,15 +304,34 @@ public class DataverseService
     {
         // Use correct primary key field name from schema
         var idField = "legalops_mattersid";
-        var id = GetStringValue(record, idField) ?? "";
         
-        // Handle GUID format - remove curly braces if present
-        if (id.StartsWith("{") && id.EndsWith("}"))
+        if (record.TryGetValue(idField, out var value))
         {
-            id = id.Substring(1, id.Length - 2);
+            // If it's a complex object (JsonElement), try to extract the "id" property
+            if (value is JsonElement jsonElement && jsonElement.ValueKind == JsonValueKind.Object)
+            {
+                if (jsonElement.TryGetProperty("id", out var idProperty))
+                {
+                    var id = idProperty.GetString() ?? "";
+                    // Handle GUID format - remove curly braces if present
+                    if (id.StartsWith("{") && id.EndsWith("}"))
+                    {
+                        id = id.Substring(1, id.Length - 2);
+                    }
+                    return id;
+                }
+            }
+            
+            // Fallback to string conversion
+            var fallbackId = value?.ToString() ?? "";
+            if (fallbackId.StartsWith("{") && fallbackId.EndsWith("}"))
+            {
+                fallbackId = fallbackId.Substring(1, fallbackId.Length - 2);
+            }
+            return fallbackId;
         }
         
-        return id;
+        return "";
     }
 
     private string? GetStringValue(Dictionary<string, object> record, string key)
