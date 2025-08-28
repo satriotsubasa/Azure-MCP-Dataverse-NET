@@ -26,6 +26,7 @@ public class DataverseService
     /// <summary>
     /// Search for legal matters and IP matters using SQL4CDS approach
     /// Follows exact pattern from working example
+    /// Supports field-specific search syntax mapping
     /// </summary>
     public async Task<SearchResultItem[]> SearchMattersAsync(string query, int limit = 10)
     {
@@ -48,6 +49,28 @@ public class DataverseService
             var tablesResult = await ExecuteSqlQueryAsync(tableCheckQuery);
             _logger.LogInformation("Available tables result: {TablesResult}", tablesResult);
 
+            // Parse and map field-specific search syntax
+            var (searchTerm, fieldMappings) = ParseSearchQuery(query);
+            _logger.LogInformation("Parsed search term: '{SearchTerm}', Field mappings: {FieldMappings}", 
+                searchTerm, string.Join(", ", fieldMappings.Select(kvp => $"{kvp.Key}={kvp.Value}")));
+
+            // Build WHERE clause based on field mappings or default search
+            string whereClause;
+            if (fieldMappings.Any())
+            {
+                var conditions = new List<string>();
+                foreach (var mapping in fieldMappings)
+                {
+                    conditions.Add($"{mapping.Value} LIKE '%{mapping.Key}%'");
+                }
+                whereClause = $"({string.Join(" OR ", conditions)}) AND (legalops_highlyconfidential IS NULL OR legalops_highlyconfidential != 1)";
+            }
+            else
+            {
+                // Default search in both name and code fields
+                whereClause = $"(legalops_name LIKE '%{searchTerm}%' OR legalops_code LIKE '%{searchTerm}%') AND (legalops_highlyconfidential IS NULL OR legalops_highlyconfidential != 1)";
+            }
+
             // Search legal matters table - using correct column names from schema
             var mattersQuery = $"""
                 SELECT TOP({limit}) 
@@ -56,8 +79,7 @@ public class DataverseService
                     legalops_code, 
                     legalops_descriptionbasic
                 FROM dbo.legalops_matters 
-                WHERE (legalops_name LIKE '%{query}%' OR legalops_code LIKE '%{query}%') 
-                    AND (legalops_highlyconfidential IS NULL OR legalops_highlyconfidential != 1)
+                WHERE {whereClause}
                 """;
 
             _logger.LogInformation("Executing matters query: {MattersQuery}", mattersQuery);
@@ -255,6 +277,112 @@ public class DataverseService
     {
         var result = await ExecuteSqlQueryAsync($"SELECT Response FROM FetchXMLToSQL('{fetchXml}',0)");
         return result;
+    }
+
+    /// <summary>
+    /// Parse search query and map field-specific syntax to Dataverse column names
+    /// Supports syntax like: title:term, name:term, code:term, description:term
+    /// </summary>
+    private (string searchTerm, Dictionary<string, string> fieldMappings) ParseSearchQuery(string query)
+    {
+        var fieldMappings = new Dictionary<string, string>();
+        var searchTerm = query;
+
+        // Define field mappings from search syntax to actual column names
+        var syntaxMappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            // Title/Name mappings - all map to legalops_name
+            ["title"] = "legalops_name",
+            ["name"] = "legalops_name", 
+            ["matter"] = "legalops_name",
+            ["subject"] = "legalops_name",
+            
+            // Code mappings
+            ["code"] = "legalops_code",
+            ["matter_code"] = "legalops_code",
+            ["id"] = "legalops_code",
+            
+            // Description mappings
+            ["description"] = "legalops_descriptionbasic",
+            ["desc"] = "legalops_descriptionbasic",
+            ["summary"] = "legalops_descriptionbasic",
+            ["details"] = "legalops_descriptionbasic"
+        };
+
+        // Check for field-specific search patterns: field:term or "field:term"
+        var fieldSearchPatterns = new[]
+        {
+            @"(\w+):([""']?)([^""'\s]+)\2", // Matches field:term, field:"term", field:'term'
+            @"""(\w+):([^""]+)""",         // Matches "field:term with spaces"
+            @"'(\w+):([^']+)'"             // Matches 'field:term with spaces'
+        };
+
+        foreach (var pattern in fieldSearchPatterns)
+        {
+            var matches = System.Text.RegularExpressions.Regex.Matches(query, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            
+            foreach (System.Text.RegularExpressions.Match match in matches)
+            {
+                string fieldName, fieldValue;
+                
+                if (match.Groups.Count == 4) // field:term pattern
+                {
+                    fieldName = match.Groups[1].Value;
+                    fieldValue = match.Groups[3].Value;
+                }
+                else if (match.Groups.Count == 3) // quoted patterns
+                {
+                    fieldName = match.Groups[1].Value;
+                    fieldValue = match.Groups[2].Value;
+                }
+                else
+                {
+                    continue;
+                }
+
+                // Map the field name to the actual column name
+                if (syntaxMappings.TryGetValue(fieldName, out var columnName))
+                {
+                    fieldMappings[fieldValue] = columnName;
+                    
+                    // Remove the field:term pattern from the search term for cleaner logging
+                    searchTerm = query.Replace(match.Value, "").Trim();
+                }
+            }
+        }
+
+        // Handle special cases for natural language queries
+        if (!fieldMappings.Any())
+        {
+            // Check for natural language patterns like "matter name contains X"
+            var naturalLanguagePatterns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["matter name contains"] = "legalops_name",
+                ["title contains"] = "legalops_name",
+                ["name contains"] = "legalops_name",
+                ["code contains"] = "legalops_code",
+                ["description contains"] = "legalops_descriptionbasic"
+            };
+
+            foreach (var pattern in naturalLanguagePatterns)
+            {
+                if (query.Contains(pattern.Key, StringComparison.OrdinalIgnoreCase))
+                {
+                    var term = query.Replace(pattern.Key, "", StringComparison.OrdinalIgnoreCase).Trim();
+                    if (!string.IsNullOrEmpty(term))
+                    {
+                        fieldMappings[term] = pattern.Value;
+                        searchTerm = term;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Clean up quoted search terms
+        searchTerm = searchTerm.Trim('"', '\'').Trim();
+        
+        return (searchTerm, fieldMappings);
     }
 
     /// <summary>
