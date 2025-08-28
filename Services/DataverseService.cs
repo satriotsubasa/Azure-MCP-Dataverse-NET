@@ -2,9 +2,9 @@ using MarkMpn.Sql4Cds.Engine;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
-using DataverseMcp.FunctionApp.Models;
+using DataverseMcp.WebApi.Models;
 
-namespace DataverseMcp.FunctionApp.Services;
+namespace DataverseMcp.WebApi.Services;
 
 public class DataverseService
 {

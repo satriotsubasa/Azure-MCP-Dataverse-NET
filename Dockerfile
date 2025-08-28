@@ -8,25 +8,26 @@ FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
 # Copy project file and restore dependencies
-COPY ["DataverseMcp.FunctionApp.csproj", "./"]
-RUN dotnet restore "DataverseMcp.FunctionApp.csproj"
+COPY ["DataverseMcp.WebApi.csproj", "./"]
+RUN dotnet restore "DataverseMcp.WebApi.csproj"
 
 # Copy source code and build
 COPY . .
-RUN dotnet build "DataverseMcp.FunctionApp.csproj" -c Release -o /app/build
+RUN dotnet build "DataverseMcp.WebApi.csproj" -c Release -o /app/build
 
 # Publish the application
 FROM build AS publish
-RUN dotnet publish "DataverseMcp.FunctionApp.csproj" -c Release -o /app/publish
+RUN dotnet publish "DataverseMcp.WebApi.csproj" -c Release -o /app/publish
 
 # Final stage - runtime
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
 
-# Set environment variables for Render
+# Set environment variables for Render.com
 ENV ASPNETCORE_URLS=http://*:8080
 ENV ASPNETCORE_ENVIRONMENT=Production
+ENV PORT=8080
 
-# Create a startup script that will run the web server
-ENTRYPOINT ["dotnet", "DataverseMcp.FunctionApp.dll"]
+# Run the web application
+ENTRYPOINT ["dotnet", "DataverseMcp.WebApi.dll"]

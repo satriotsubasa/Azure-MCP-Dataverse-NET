@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace DataverseMcp.FunctionApp.Models;
+namespace DataverseMcp.WebApi.Models;
 
 // MCP Protocol Models for OpenAI compliance
 public record McpRequest

@@ -1,40 +1,29 @@
-using Microsoft.Azure.Functions.Worker;
-using Microsoft.Azure.Functions.Worker.Http;
-using Microsoft.Extensions.Logging;
-using System.Net;
-using System.Text.Json;
+using Microsoft.AspNetCore.Mvc;
 using System.Diagnostics;
 
-namespace DataverseMcp.FunctionApp.Functions;
+namespace DataverseMcp.WebApi.Controllers;
 
-public class NetworkTestFunction
+[ApiController]
+[Route("api/[controller]")]
+public class NetworkTestController : ControllerBase
 {
-    private readonly ILogger<NetworkTestFunction> _logger;
+    private readonly ILogger<NetworkTestController> _logger;
     private readonly HttpClient _httpClient;
 
-    public NetworkTestFunction(ILogger<NetworkTestFunction> logger, IHttpClientFactory httpClientFactory)
+    public NetworkTestController(ILogger<NetworkTestController> logger, IHttpClientFactory httpClientFactory)
     {
         _logger = logger;
         _httpClient = httpClientFactory.CreateClient();
         _httpClient.Timeout = TimeSpan.FromSeconds(30);
     }
 
-    [Function("NetworkTest")]
-    public async Task<HttpResponseData> Run(
-        [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", "options")] HttpRequestData req)
+    [HttpGet]
+    public async Task<IActionResult> Get()
     {
         _logger.LogInformation("Network connectivity test started");
 
         try
         {
-            // Handle CORS preflight
-            if (req.Method.Equals("OPTIONS", StringComparison.OrdinalIgnoreCase))
-            {
-                var corsResponse = req.CreateResponse(HttpStatusCode.OK);
-                AddCorsHeaders(corsResponse);
-                return corsResponse;
-            }
-
             var testEndpoints = new[]
             {
                 new { name = "Microsoft", url = "https://microsoft.com", description = "Microsoft main site" },
@@ -61,7 +50,7 @@ public class NetworkTestFunction
                     successful = testResults.Count(r => ((dynamic)r).success),
                     failed = testResults.Count(r => !((dynamic)r).success)
                 },
-                azure_function_info = new
+                render_environment_info = new
                 {
                     machine_name = Environment.MachineName,
                     os_version = Environment.OSVersion.ToString(),
@@ -70,16 +59,14 @@ public class NetworkTestFunction
                     {
                         http_proxy = Environment.GetEnvironmentVariable("HTTP_PROXY") ?? "not set",
                         https_proxy = Environment.GetEnvironmentVariable("HTTPS_PROXY") ?? "not set",
-                        no_proxy = Environment.GetEnvironmentVariable("NO_PROXY") ?? "not set"
+                        no_proxy = Environment.GetEnvironmentVariable("NO_PROXY") ?? "not set",
+                        port = Environment.GetEnvironmentVariable("PORT") ?? "not set"
                     }
                 },
                 test_results = testResults
             };
 
-            var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(networkInfo);
-            AddCorsHeaders(response);
-            return response;
+            return Ok(networkInfo);
         }
         catch (Exception ex)
         {
@@ -92,10 +79,7 @@ public class NetworkTestFunction
                 timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
             };
 
-            var response = req.CreateResponse(HttpStatusCode.InternalServerError);
-            await response.WriteAsJsonAsync(errorInfo);
-            AddCorsHeaders(response);
-            return response;
+            return StatusCode(500, errorInfo);
         }
     }
 
@@ -108,7 +92,7 @@ public class NetworkTestFunction
             _logger.LogInformation("Testing connectivity to {Name}: {Url}", name, url);
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Add("User-Agent", "Azure-Function-Network-Test/1.0");
+            request.Headers.Add("User-Agent", "Render-Web-Service-Network-Test/1.0");
 
             using var response = await _httpClient.SendAsync(request);
             stopwatch.Stop();
@@ -187,13 +171,5 @@ public class NetworkTestFunction
                 error_type = ex.GetType().Name
             };
         }
-    }
-
-    private static void AddCorsHeaders(HttpResponseData response)
-    {
-        response.Headers.Add("Access-Control-Allow-Origin", "*");
-        response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-        response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Authorization");
-        response.Headers.Add("Access-Control-Max-Age", "3600");
     }
 }

@@ -1,38 +1,27 @@
-using Microsoft.Azure.Functions.Worker;
-using Microsoft.Azure.Functions.Worker.Http;
-using Microsoft.Extensions.Logging;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.PowerPlatform.Dataverse.Client;
 using MarkMpn.Sql4Cds.Engine;
-using System.Net;
-using System.Text.Json;
 
-namespace DataverseMcp.FunctionApp.Functions;
+namespace DataverseMcp.WebApi.Controllers;
 
-public class DiagnosticFunction
+[ApiController]
+[Route("api/[controller]")]
+public class DiagnosticController : ControllerBase
 {
-    private readonly ILogger<DiagnosticFunction> _logger;
+    private readonly ILogger<DiagnosticController> _logger;
 
-    public DiagnosticFunction(ILogger<DiagnosticFunction> logger)
+    public DiagnosticController(ILogger<DiagnosticController> logger)
     {
         _logger = logger;
     }
 
-    [Function("Diagnostic")]
-    public async Task<HttpResponseData> Run(
-        [HttpTrigger(AuthorizationLevel.Anonymous, "get", "post", "options")] HttpRequestData req)
+    [HttpGet]
+    public async Task<IActionResult> Get()
     {
         _logger.LogInformation("Diagnostic endpoint called");
 
         try
         {
-            // Handle CORS preflight
-            if (req.Method.Equals("OPTIONS", StringComparison.OrdinalIgnoreCase))
-            {
-                var corsResponse = req.CreateResponse(HttpStatusCode.OK);
-                AddCorsHeaders(corsResponse);
-                return corsResponse;
-            }
-
             var connectionString = Environment.GetEnvironmentVariable("DATAVERSE_CONNECTIONSTRING");
             
             var diagnosticInfo = new
@@ -48,10 +37,7 @@ public class DiagnosticFunction
                 connection_tests = await TestConnections(connectionString)
             };
 
-            var response = req.CreateResponse(HttpStatusCode.OK);
-            await response.WriteAsJsonAsync(diagnosticInfo);
-            AddCorsHeaders(response);
-            return response;
+            return Ok(diagnosticInfo);
         }
         catch (Exception ex)
         {
@@ -64,10 +50,7 @@ public class DiagnosticFunction
                 timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
             };
 
-            var response = req.CreateResponse(HttpStatusCode.InternalServerError);
-            await response.WriteAsJsonAsync(errorInfo);
-            AddCorsHeaders(response);
-            return response;
+            return StatusCode(500, errorInfo);
         }
     }
 
@@ -234,13 +217,5 @@ public class DiagnosticFunction
                 exception_type = ex.GetType().Name
             };
         }
-    }
-
-    private static void AddCorsHeaders(HttpResponseData response)
-    {
-        response.Headers.Add("Access-Control-Allow-Origin", "*");
-        response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-        response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, Authorization");
-        response.Headers.Add("Access-Control-Max-Age", "3600");
     }
 }
