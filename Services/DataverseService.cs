@@ -171,31 +171,89 @@ public class DataverseService
     }
 
     /// <summary>
-    /// Get table metadata - from working example
+    /// Get metadata for all tables in Dataverse - following reference implementation
     /// </summary>
-    public async Task<string> GetTableMetadataAsync(string? tableName = null, string[]? fieldNames = null)
+    public async Task<string> GetMetadataForAllTablesAsync(string[] metadataFieldNames, string? conditions = null)
     {
-        var cacheKey = $"GetTableMetadata_{tableName}_{string.Join(",", fieldNames ?? Array.Empty<string>())}";
-        
+        var cacheKey = $"GetMetadataForAllTables_{string.Join(",", metadataFieldNames)}_{conditions}";
         if (_cache.TryGetValue(cacheKey, out string? cachedResult))
         {
             return cachedResult!;
         }
 
-        var fields = fieldNames?.Length > 0 
-            ? string.Join(",", fieldNames) 
-            : "*";
-            
-        var query = $"SELECT {fields} FROM metadata.entity";
-        
-        if (!string.IsNullOrEmpty(tableName))
+        var query = metadataFieldNames.Length > 0 ? $"SELECT {string.Join(",", metadataFieldNames)} FROM metadata.entity" : $"SELECT * FROM metadata.entity";
+        if (!string.IsNullOrEmpty(conditions))
         {
-            query += $" WHERE logicalname = '{tableName}'";
+            query += $" WHERE ({conditions.ToLower()})";
         }
-
         var result = await ExecuteSqlQueryAsync(query);
         _cache.Set(cacheKey, result, DefaultCachingDuration);
-        
+        return result;
+    }
+
+    /// <summary>
+    /// Get metadata for a specific table - following reference implementation
+    /// </summary>
+    public async Task<string> GetMetadataByTableNameAsync(string tableName, string[] metadataFieldNames)
+    {
+        var cacheKey = $"GetMetadataByTableName_{tableName}_{string.Join(",", metadataFieldNames)}";
+        if (_cache.TryGetValue(cacheKey, out string? cachedResult))
+        {
+            return cachedResult!;
+        }
+
+        var query = metadataFieldNames.Length > 0 ? $"SELECT {string.Join(",", metadataFieldNames)} FROM metadata.entity" : $"SELECT * FROM metadata.entity";
+        var result = await ExecuteSqlQueryAsync($"{query} WHERE logicalname = '{tableName}'");
+        _cache.Set(cacheKey, result, DefaultCachingDuration);
+        return result;
+    }
+
+    /// <summary>
+    /// Get metadata for fields in a specific table - following reference implementation
+    /// </summary>
+    public async Task<string> GetFieldMetadataByTableNameAsync(string tableName, string[] metadataFieldNames, string? conditions = null)
+    {
+        var cacheKey = $"GetFieldMetadataByTableName_{tableName}_{string.Join(",", metadataFieldNames)}_{conditions}";
+        if (_cache.TryGetValue(cacheKey, out string? cachedResult))
+        {
+            return cachedResult!;
+        }
+
+        var query = metadataFieldNames.Length > 0 ? $"SELECT {string.Join(",", metadataFieldNames)} FROM metadata.attribute" : $"SELECT * FROM metadata.attribute";
+        query += $" WHERE entitylogicalname = '{tableName}'";
+        if (!string.IsNullOrEmpty(conditions))
+        {
+            query += $" AND ({conditions.ToLower()})";
+        }
+        var result = await ExecuteSqlQueryAsync(query);
+        _cache.Set(cacheKey, result, DefaultCachingDuration);
+        return result;
+    }
+
+    /// <summary>
+    /// Retrieve rows for a specific table - following reference implementation
+    /// </summary>
+    public async Task<string> GetRowsForTableAsync(string tableName, string[] fieldNames, string? conditions = null, string? sortOrder = null, int? rowCount = 50)
+    {
+        var query = fieldNames.Length > 0 ? $"SELECT TOP({rowCount}) {string.Join(",", fieldNames)} FROM dbo.{tableName}" : $"SELECT TOP({rowCount}) * FROM dbo.{tableName}";
+        if (!string.IsNullOrEmpty(conditions))
+        {
+            query += $" WHERE ({conditions})";
+        }
+        if (!string.IsNullOrEmpty(sortOrder))
+        {
+            query += $" ORDER BY {sortOrder}";
+        }
+        var result = await ExecuteSqlQueryAsync(query);
+        return result;
+    }
+
+    /// <summary>
+    /// Convert FetchXml query to SQL query - following reference implementation
+    /// </summary>
+    public async Task<string> ConvertFetchXmlToSqlAsync(string fetchXml)
+    {
+        var result = await ExecuteSqlQueryAsync($"SELECT Response FROM FetchXMLToSQL('{fetchXml}',0)");
         return result;
     }
 
