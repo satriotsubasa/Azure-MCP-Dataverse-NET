@@ -35,6 +35,19 @@ public class DataverseService
 
         try
         {
+            // First, let's check what tables exist
+            var tableCheckQuery = """
+                SELECT TOP 10 logicalname, displayname 
+                FROM metadata.entity 
+                WHERE logicalname LIKE '%legal%' OR logicalname LIKE '%matter%' 
+                   OR displayname LIKE '%legal%' OR displayname LIKE '%matter%'
+                ORDER BY logicalname
+                """;
+            
+            _logger.LogInformation("Checking for legal/matter tables...");
+            var tablesResult = await ExecuteSqlQueryAsync(tableCheckQuery);
+            _logger.LogInformation("Available tables result: {TablesResult}", tablesResult);
+
             // Search legal matters table - using SQL4CDS pattern from working example
             var mattersQuery = $"""
                 SELECT TOP({limit}) 
@@ -47,7 +60,9 @@ public class DataverseService
                     AND (legalops_highlyconfidential IS NULL OR legalops_highlyconfidential != 1)
                 """;
 
+            _logger.LogInformation("Executing matters query: {MattersQuery}", mattersQuery);
             var mattersResults = await ExecuteSqlQueryAsync(mattersQuery);
+            _logger.LogInformation("Matters query result: {MattersResults}", mattersResults);
             results.AddRange(TransformToSearchResults(mattersResults, "matters"));
 
             // Search IP matters table
@@ -62,7 +77,9 @@ public class DataverseService
                     AND (legalops_highlyconfidential IS NULL OR legalops_highlyconfidential != 1)
                 """;
 
+            _logger.LogInformation("Executing IP matters query: {IpQuery}", ipQuery);
             var ipResults = await ExecuteSqlQueryAsync(ipQuery);
+            _logger.LogInformation("IP matters query result: {IpResults}", ipResults);
             results.AddRange(TransformToSearchResults(ipResults, "ip"));
 
             _logger.LogInformation("Found {Count} total results for query '{Query}'", results.Count, query);
