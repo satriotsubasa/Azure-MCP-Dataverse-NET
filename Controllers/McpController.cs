@@ -458,12 +458,26 @@ Enterprise .NET Web API MCP server for Microsoft Dataverse using SQL4CDS. Focus 
                 metadata = r.Metadata
             }).ToArray();
 
+            // Return content array format for MCP tool calls
+            var content = new[]
+            {
+                new
+                {
+                    type = "text",
+                    text = results.Length > 0 
+                        ? $"Found {results.Length} legal matter(s):\n\n" + 
+                          string.Join("\n", results.Select((r, i) => 
+                              $"{i + 1}. **{r.title}** (ID: {r.id})\n   {r.text}\n   Code: {r.metadata["code"]}"))
+                        : "No matters matched your search query."
+                }
+            };
+
             return new McpResponse
             {
                 Id = requestId,
                 Result = new
                 {
-                    results = results
+                    content = content
                 }
             };
         }
@@ -499,16 +513,26 @@ Enterprise .NET Web API MCP server for Microsoft Dataverse using SQL4CDS. Focus 
                 return CreateMcpErrorResponse(requestId, -32603, $"Record with ID {id} not found");
             }
 
+            // Return content array format for MCP tool calls
+            var content = new[]
+            {
+                new
+                {
+                    type = "text",
+                    text = $"**{result.Title}** (ID: {result.Id})\n\n" +
+                           $"Description: {result.Text}\n" +
+                           $"Code: {result.Metadata.GetValueOrDefault("code", "")}\n" +
+                           $"Name: {result.Metadata.GetValueOrDefault("name", "")}\n" +
+                           $"URL: {result.Url}"
+                }
+            };
+
             return new McpResponse
             {
                 Id = requestId,
                 Result = new
                 {
-                    id = result.Id,
-                    title = result.Title,
-                    text = result.Text,
-                    url = result.Url,
-                    metadata = result.Metadata
+                    content = content
                 }
             };
         }
