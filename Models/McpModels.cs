@@ -106,6 +106,9 @@ public record McpProperty
     
     [JsonPropertyName("description")]
     public string Description { get; init; } = string.Empty;
+    
+    [JsonPropertyName("items")]
+    public object? Items { get; init; }
 }
 
 public record McpToolsListResult

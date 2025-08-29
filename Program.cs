@@ -57,7 +57,7 @@ var host = new HostBuilder()
         });
         
         // Add Dataverse service with optional registration (don't fail startup)
-        services.AddScoped<DataverseService?>(serviceProvider =>
+        services.AddScoped<DataverseService>(serviceProvider =>
         {
             try
             {
