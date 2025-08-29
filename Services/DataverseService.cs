@@ -30,12 +30,16 @@ public class DataverseService
     /// </summary>
     public async Task<SearchResultItem[]> SearchMattersAsync(string query, int limit = 10)
     {
+        _logger.LogInformation("Searching for '{Query}' with limit {Limit}", query, limit);
+
         var results = new List<SearchResultItem>();
 
         try
         {
             // Parse and map field-specific search syntax
             var (searchTerm, fieldMappings) = ParseSearchQuery(query);
+            _logger.LogInformation("Parsed search term: '{SearchTerm}', Field mappings: {FieldMappings}", 
+                searchTerm, string.Join(", ", fieldMappings.Select(kvp => $"{kvp.Key}={kvp.Value}")));
 
             // Build WHERE clause based on field mappings or default search
             string whereClause;
@@ -65,8 +69,12 @@ public class DataverseService
                 WHERE {whereClause}
                 """;
 
+            _logger.LogInformation("Executing matters query: {MattersQuery}", mattersQuery);
             var mattersResults = await ExecuteSqlQueryAsync(mattersQuery);
+            _logger.LogInformation("Matters query result: {MattersResults}", mattersResults);
             results.AddRange(TransformToSearchResults(mattersResults, "matters"));
+
+            _logger.LogInformation("Found {Count} total results for query '{Query}'", results.Count, query);
             
             return results.Take(limit).ToArray();
         }
@@ -82,7 +90,7 @@ public class DataverseService
     /// </summary>
     public async Task<SearchResultItem?> FetchRecordAsync(string recordId, string tableType)
     {
-        // Fetching record by ID
+        _logger.LogInformation("Fetching record {RecordId} from {TableType} table", recordId, tableType);
 
         try
         {
@@ -111,7 +119,7 @@ public class DataverseService
             throw new ArgumentException("Only SELECT statements are allowed.");
         }
 
-        _logger.LogInformation("SQL: {Query}", sqlQuery.Length > 100 ? sqlQuery.Substring(0, 100) + "..." : sqlQuery);
+        _logger.LogInformation("Executing SQL: {Query}", sqlQuery);
 
         try
         {
@@ -140,7 +148,7 @@ public class DataverseService
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase 
             });
 
-            _logger.LogInformation("Returned {RowCount} rows", table.Count);
+            _logger.LogInformation("SQL query returned {RowCount} rows", table.Count);
             
             return $"""
                 <environment>

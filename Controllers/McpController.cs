@@ -51,9 +51,12 @@ public class McpController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> HandleMcpRequest([FromBody] JsonElement body)
     {
+        _logger.LogInformation("MCP Request received: {Method}", Request.Method);
+
         try
         {
             var requestBody = body.GetRawText();
+            _logger.LogInformation("MCP Request body: {Body}", requestBody);
 
             if (string.IsNullOrEmpty(requestBody))
             {
@@ -86,6 +89,7 @@ public class McpController : ControllerBase
 
     private async Task<IActionResult> ProcessMcpMethod(McpRequest mcpRequest)
     {
+        _logger.LogInformation("Processing MCP method: {Method}", mcpRequest.Method);
 
         return mcpRequest.Method switch
         {
@@ -400,7 +404,8 @@ Enterprise .NET Web API MCP server for Microsoft Dataverse using SQL4CDS. Focus 
                 return CreateMcpErrorResponse(requestId, -32602, "Invalid params");
             }
 
-            _logger.LogInformation("Tool call: {ToolName}", toolParams.Name);
+            _logger.LogInformation("Tool call: {ToolName} with args: {Args}", toolParams.Name, 
+                JsonSerializer.Serialize(toolParams.Arguments));
 
             return toolParams.Name switch
             {
@@ -439,7 +444,7 @@ Enterprise .NET Web API MCP server for Microsoft Dataverse using SQL4CDS. Focus 
                 return CreateMcpErrorResponse(requestId, -32602, "Missing or invalid 'query' parameter");
             }
 
-            _logger.LogInformation("Search: '{Query}' (limit: {Limit})", query, limit);
+            _logger.LogInformation("Searching for matters with query: {Query}, limit: {Limit}", query, limit);
 
             var searchResults = await _dataverseService.SearchMattersAsync(query, limit);
 
@@ -453,14 +458,23 @@ Enterprise .NET Web API MCP server for Microsoft Dataverse using SQL4CDS. Focus 
                 metadata = r.Metadata
             }).ToArray();
 
+            _logger.LogInformation("=== SEARCH SUMMARY ===");
+            _logger.LogInformation("Query: '{Query}'", query);
+            _logger.LogInformation("Results count: {Count}", results.Length);
+            
             if (results.Length > 0)
             {
-                _logger.LogInformation("Found {Count} results for '{Query}'", results.Length, query);
+                _logger.LogInformation("Found results:");
+                for (int i = 0; i < results.Length; i++)
+                {
+                    _logger.LogInformation("  {Index}. {Title} (ID: {Id})", i + 1, results[i].title, results[i].id);
+                }
             }
             else
             {
-                _logger.LogWarning("No results found for '{Query}'", query);
+                _logger.LogWarning("NO RESULTS FOUND for query: '{Query}'", query);
             }
+            _logger.LogInformation("===================");
 
             // Return the results array as expected by ChatGPT MCP specification
             var response = new McpResponse
@@ -478,7 +492,7 @@ Enterprise .NET Web API MCP server for Microsoft Dataverse using SQL4CDS. Focus 
                 }
             };
 
-            // Response returned successfully
+            _logger.LogInformation("MCP Response being returned: {Response}", System.Text.Json.JsonSerializer.Serialize(response));
             
             return response;
         }
@@ -505,7 +519,7 @@ Enterprise .NET Web API MCP server for Microsoft Dataverse using SQL4CDS. Focus 
                 return CreateMcpErrorResponse(requestId, -32602, "Missing or invalid 'id' parameter");
             }
 
-            _logger.LogInformation("Fetch: {Id}", id);
+            _logger.LogInformation("Fetching matter with ID: {Id}", id);
 
             var result = await _dataverseService.FetchRecordAsync(id, "matters");
 
@@ -564,7 +578,7 @@ Enterprise .NET Web API MCP server for Microsoft Dataverse using SQL4CDS. Focus 
                 return CreateMcpErrorResponse(requestId, -32602, "Missing or invalid 'sqlQuery' parameter");
             }
 
-            _logger.LogInformation("SQL: {SqlQuery}", sqlQuery.Length > 100 ? sqlQuery.Substring(0, 100) + "..." : sqlQuery);
+            _logger.LogInformation("Executing SQL: {SqlQuery}", sqlQuery);
 
             var result = await _dataverseService.ExecuteSqlQueryAsync(sqlQuery);
             return new McpResponse
@@ -597,7 +611,7 @@ Enterprise .NET Web API MCP server for Microsoft Dataverse using SQL4CDS. Focus 
                 return CreateMcpErrorResponse(requestId, -32602, "Missing or invalid 'metadataFieldNames' parameter");
             }
 
-            _logger.LogInformation("GetMetadata: all tables");
+            _logger.LogInformation("Getting metadata for all tables with fields: {Fields}", string.Join(",", metadataFieldNames));
 
             var result = await _dataverseService.GetMetadataForAllTablesAsync(metadataFieldNames, conditions);
             return new McpResponse
@@ -635,7 +649,7 @@ Enterprise .NET Web API MCP server for Microsoft Dataverse using SQL4CDS. Focus 
                 return CreateMcpErrorResponse(requestId, -32602, "Missing or invalid 'metadataFieldNames' parameter");
             }
 
-            _logger.LogInformation("GetMetadata: {TableName}", tableName);
+            _logger.LogInformation("Getting metadata for table: {TableName}", tableName);
 
             var result = await _dataverseService.GetMetadataByTableNameAsync(tableName, metadataFieldNames);
             return new McpResponse
@@ -674,7 +688,7 @@ Enterprise .NET Web API MCP server for Microsoft Dataverse using SQL4CDS. Focus 
                 return CreateMcpErrorResponse(requestId, -32602, "Missing or invalid 'metadataFieldNames' parameter");
             }
 
-            _logger.LogInformation("GetFieldMetadata: {TableName}", tableName);
+            _logger.LogInformation("Getting field metadata for table: {TableName}", tableName);
 
             var result = await _dataverseService.GetFieldMetadataByTableNameAsync(tableName, metadataFieldNames, conditions);
             return new McpResponse
@@ -715,7 +729,7 @@ Enterprise .NET Web API MCP server for Microsoft Dataverse using SQL4CDS. Focus 
                 return CreateMcpErrorResponse(requestId, -32602, "Missing or invalid 'fieldNames' parameter");
             }
 
-            _logger.LogInformation("GetRows: {TableName}", tableName);
+            _logger.LogInformation("Getting rows for table: {TableName}", tableName);
 
             var result = await _dataverseService.GetRowsForTableAsync(tableName, fieldNames, conditions, sortOrder, rowCount);
             return new McpResponse
@@ -746,7 +760,7 @@ Enterprise .NET Web API MCP server for Microsoft Dataverse using SQL4CDS. Focus 
                 return CreateMcpErrorResponse(requestId, -32602, "Missing or invalid 'fetchXml' parameter");
             }
 
-            _logger.LogInformation("ConvertFetchXML");
+            _logger.LogInformation("Converting FetchXML to SQL");
 
             var result = await _dataverseService.ConvertFetchXmlToSqlAsync(fetchXml);
             return new McpResponse
