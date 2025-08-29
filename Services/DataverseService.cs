@@ -36,19 +36,6 @@ public class DataverseService
 
         try
         {
-            // First, let's check what tables exist
-            var tableCheckQuery = """
-                SELECT TOP 10 logicalname, displayname 
-                FROM metadata.entity 
-                WHERE logicalname LIKE '%legal%' OR logicalname LIKE '%matter%' 
-                   OR displayname LIKE '%legal%' OR displayname LIKE '%matter%'
-                ORDER BY logicalname
-                """;
-            
-            _logger.LogInformation("Checking for legal/matter tables...");
-            var tablesResult = await ExecuteSqlQueryAsync(tableCheckQuery);
-            _logger.LogInformation("Available tables result: {TablesResult}", tablesResult);
-
             // Parse and map field-specific search syntax
             var (searchTerm, fieldMappings) = ParseSearchQuery(query);
             _logger.LogInformation("Parsed search term: '{SearchTerm}', Field mappings: {FieldMappings}", 
@@ -410,7 +397,7 @@ public class DataverseService
                 Id = ExtractRecordId(record, tableType),
                 Title = GetStringValue(record, "legalops_name") ?? "Untitled Matter",
                 Text = GetStringValue(record, "legalops_descriptionbasic") ?? GetStringValue(record, "legalops_code") ?? "No description available",
-                Url = "https://fa-auae-dsdev-lgca-dig04.azurewebsites.net/api/HttpTrigger", // Will be updated when deployed
+                Url = "https://azure-mcp-dataverse-net.onrender.com/api/mcp", // Render.com deployment
                 Metadata = new Dictionary<string, object>
                 {
                     ["table_type"] = tableType,

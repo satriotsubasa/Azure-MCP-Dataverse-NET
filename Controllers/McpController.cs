@@ -463,17 +463,11 @@ Enterprise .NET Web API MCP server for Microsoft Dataverse using SQL4CDS. Focus 
             if (results.Length > 0)
             {
                 _logger.LogInformation("First result: ID={Id}, Title={Title}", results[0].id, results[0].title);
+                _logger.LogInformation("All result titles: {Titles}", string.Join("; ", results.Select(r => r.title)));
             }
 
-            // Try returning as simple content text instead of content array
-            var responseText = results.Length > 0 
-                ? $"Found {results.Length} legal matter(s):\n\n" + 
-                  string.Join("\n", results.Select((r, i) => 
-                  {
-                      var code = r.metadata.TryGetValue("code", out var codeValue) ? codeValue?.ToString() ?? "" : "";
-                      return $"{i + 1}. **{r.title}** (ID: {r.id})\n   Description: {r.text}\n   Code: {code}";
-                  }))
-                : "No matters matched your search query.";
+            // Log query being used for debugging
+            _logger.LogInformation("Original query parameter: {Query}", query);
 
             // Return the results array as expected by ChatGPT MCP specification
             var response = new McpResponse
