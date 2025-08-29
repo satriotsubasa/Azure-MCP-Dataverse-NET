@@ -478,17 +478,7 @@ Enterprise .NET Web API MCP server for Microsoft Dataverse using SQL4CDS. Focus 
             var response = new McpResponse
             {
                 Id = requestId,
-                Result = new
-                {
-                    content = new[]
-                    {
-                        new
-                        {
-                            type = "text",
-                            text = responseText
-                        }
-                    }
-                }
+                Result = responseText
             };
 
             _logger.LogInformation("MCP Response being returned: {Response}", System.Text.Json.JsonSerializer.Serialize(response));
@@ -541,13 +531,16 @@ Enterprise .NET Web API MCP server for Microsoft Dataverse using SQL4CDS. Focus 
                 }
             };
 
+            var fetchResponseText = $"**{result.Title}** (ID: {result.Id})\n\n" +
+                                   $"Description: {result.Text}\n" +
+                                   $"Code: {result.Metadata.GetValueOrDefault("code", "")}\n" +
+                                   $"Name: {result.Metadata.GetValueOrDefault("name", "")}\n" +
+                                   $"URL: {result.Url}";
+
             return new McpResponse
             {
                 Id = requestId,
-                Result = new
-                {
-                    content = content
-                }
+                Result = fetchResponseText
             };
         }
         catch (Exception ex)
