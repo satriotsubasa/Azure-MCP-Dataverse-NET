@@ -475,10 +475,20 @@ Enterprise .NET Web API MCP server for Microsoft Dataverse using SQL4CDS. Focus 
                   }))
                 : "No matters matched your search query.";
 
+            // Return the results array as expected by ChatGPT MCP specification
             var response = new McpResponse
             {
                 Id = requestId,
-                Result = responseText
+                Result = new
+                {
+                    results = results.Select(r => new
+                    {
+                        id = r.id,
+                        title = r.title, 
+                        text = r.text,
+                        url = r.url
+                    }).ToArray()
+                }
             };
 
             _logger.LogInformation("MCP Response being returned: {Response}", System.Text.Json.JsonSerializer.Serialize(response));
@@ -531,16 +541,18 @@ Enterprise .NET Web API MCP server for Microsoft Dataverse using SQL4CDS. Focus 
                 }
             };
 
-            var fetchResponseText = $"**{result.Title}** (ID: {result.Id})\n\n" +
-                                   $"Description: {result.Text}\n" +
-                                   $"Code: {result.Metadata.GetValueOrDefault("code", "")}\n" +
-                                   $"Name: {result.Metadata.GetValueOrDefault("name", "")}\n" +
-                                   $"URL: {result.Url}";
-
+            // Return single document object as expected by ChatGPT MCP specification  
             return new McpResponse
             {
                 Id = requestId,
-                Result = fetchResponseText
+                Result = new
+                {
+                    id = result.Id,
+                    title = result.Title,
+                    text = result.Text,
+                    url = result.Url,
+                    metadata = result.Metadata
+                }
             };
         }
         catch (Exception ex)
