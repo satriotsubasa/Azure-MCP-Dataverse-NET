@@ -26,6 +26,7 @@ public class DataverseService
     /// <summary>
     /// Search for legal matters and IP matters using SQL4CDS approach
     /// Follows exact pattern from working example
+    /// Supports field-specific search syntax mapping
     /// </summary>
     public async Task<SearchResultItem[]> SearchMattersAsync(string query, int limit = 10)
     {
@@ -35,35 +36,56 @@ public class DataverseService
 
         try
         {
-            // Search legal matters table - using SQL4CDS pattern from working example
+            // First, let's check what tables exist
+            var tableCheckQuery = """
+                SELECT TOP 10 logicalname, displayname 
+                FROM metadata.entity 
+                WHERE logicalname LIKE '%legal%' OR logicalname LIKE '%matter%' 
+                   OR displayname LIKE '%legal%' OR displayname LIKE '%matter%'
+                ORDER BY logicalname
+                """;
+            
+            _logger.LogInformation("Checking for legal/matter tables...");
+            var tablesResult = await ExecuteSqlQueryAsync(tableCheckQuery);
+            _logger.LogInformation("Available tables result: {TablesResult}", tablesResult);
+
+            // Parse and map field-specific search syntax
+            var (searchTerm, fieldMappings) = ParseSearchQuery(query);
+            _logger.LogInformation("Parsed search term: '{SearchTerm}', Field mappings: {FieldMappings}", 
+                searchTerm, string.Join(", ", fieldMappings.Select(kvp => $"{kvp.Key}={kvp.Value}")));
+
+            // Build WHERE clause based on field mappings or default search
+            string whereClause;
+            if (fieldMappings.Any())
+            {
+                var conditions = new List<string>();
+                foreach (var mapping in fieldMappings)
+                {
+                    conditions.Add($"{mapping.Value} LIKE '%{mapping.Key}%'");
+                }
+                whereClause = $"({string.Join(" OR ", conditions)}) AND (legalops_highlyconfidential IS NULL OR legalops_highlyconfidential != 1)";
+            }
+            else
+            {
+                // Default search in both name and code fields
+                whereClause = $"(legalops_name LIKE '%{searchTerm}%' OR legalops_code LIKE '%{searchTerm}%') AND (legalops_highlyconfidential IS NULL OR legalops_highlyconfidential != 1)";
+            }
+
+            // Search legal matters table - using correct column names from schema
             var mattersQuery = $"""
                 SELECT TOP({limit}) 
-                    legalops_matterid, 
+                    legalops_mattersid, 
                     legalops_name, 
                     legalops_code, 
-                    legalops_description 
+                    legalops_descriptionbasic
                 FROM dbo.legalops_matters 
-                WHERE (legalops_name LIKE '%{query}%' OR legalops_code LIKE '%{query}%') 
-                    AND (legalops_highlyconfidential IS NULL OR legalops_highlyconfidential != 1)
+                WHERE {whereClause}
                 """;
 
+            _logger.LogInformation("Executing matters query: {MattersQuery}", mattersQuery);
             var mattersResults = await ExecuteSqlQueryAsync(mattersQuery);
+            _logger.LogInformation("Matters query result: {MattersResults}", mattersResults);
             results.AddRange(TransformToSearchResults(mattersResults, "matters"));
-
-            // Search IP matters table
-            var ipQuery = $"""
-                SELECT TOP({limit}) 
-                    legalops_mattersipid, 
-                    legalops_name, 
-                    legalops_code, 
-                    legalops_description 
-                FROM dbo.legalops_mattersip 
-                WHERE (legalops_name LIKE '%{query}%' OR legalops_code LIKE '%{query}%') 
-                    AND (legalops_highlyconfidential IS NULL OR legalops_highlyconfidential != 1)
-                """;
-
-            var ipResults = await ExecuteSqlQueryAsync(ipQuery);
-            results.AddRange(TransformToSearchResults(ipResults, "ip"));
 
             _logger.LogInformation("Found {Count} total results for query '{Query}'", results.Count, query);
             
@@ -85,12 +107,11 @@ public class DataverseService
 
         try
         {
-            string query = tableType.ToLower() == "matters"
-                ? $"SELECT * FROM dbo.legalops_matters WHERE legalops_matterid = '{{{recordId}}}'"
-                : $"SELECT * FROM dbo.legalops_mattersip WHERE legalops_mattersipid = '{{{recordId}}}'";
+            // Only support legalops_matters table with correct primary key column name
+            string query = $"SELECT * FROM dbo.legalops_matters WHERE legalops_mattersid = '{{{recordId}}}'";
 
             var results = await ExecuteSqlQueryAsync(query);
-            var transformedResults = TransformToSearchResults(results, tableType);
+            var transformedResults = TransformToSearchResults(results, "matters");
 
             return transformedResults.FirstOrDefault();
         }
@@ -172,32 +193,196 @@ public class DataverseService
     }
 
     /// <summary>
-    /// Get table metadata - from working example
+    /// Get metadata for all tables in Dataverse - following reference implementation
     /// </summary>
-    public async Task<string> GetTableMetadataAsync(string? tableName = null, string[]? fieldNames = null)
+    public async Task<string> GetMetadataForAllTablesAsync(string[] metadataFieldNames, string? conditions = null)
     {
-        var cacheKey = $"GetTableMetadata_{tableName}_{string.Join(",", fieldNames ?? Array.Empty<string>())}";
-        
+        var cacheKey = $"GetMetadataForAllTables_{string.Join(",", metadataFieldNames)}_{conditions}";
         if (_cache.TryGetValue(cacheKey, out string? cachedResult))
         {
             return cachedResult!;
         }
 
-        var fields = fieldNames?.Length > 0 
-            ? string.Join(",", fieldNames) 
-            : "*";
-            
-        var query = $"SELECT {fields} FROM metadata.entity";
-        
-        if (!string.IsNullOrEmpty(tableName))
+        var query = metadataFieldNames.Length > 0 ? $"SELECT {string.Join(",", metadataFieldNames)} FROM metadata.entity" : $"SELECT * FROM metadata.entity";
+        if (!string.IsNullOrEmpty(conditions))
         {
-            query += $" WHERE logicalname = '{tableName}'";
+            query += $" WHERE ({conditions.ToLower()})";
         }
-
         var result = await ExecuteSqlQueryAsync(query);
         _cache.Set(cacheKey, result, DefaultCachingDuration);
-        
         return result;
+    }
+
+    /// <summary>
+    /// Get metadata for a specific table - following reference implementation
+    /// </summary>
+    public async Task<string> GetMetadataByTableNameAsync(string tableName, string[] metadataFieldNames)
+    {
+        var cacheKey = $"GetMetadataByTableName_{tableName}_{string.Join(",", metadataFieldNames)}";
+        if (_cache.TryGetValue(cacheKey, out string? cachedResult))
+        {
+            return cachedResult!;
+        }
+
+        var query = metadataFieldNames.Length > 0 ? $"SELECT {string.Join(",", metadataFieldNames)} FROM metadata.entity" : $"SELECT * FROM metadata.entity";
+        var result = await ExecuteSqlQueryAsync($"{query} WHERE logicalname = '{tableName}'");
+        _cache.Set(cacheKey, result, DefaultCachingDuration);
+        return result;
+    }
+
+    /// <summary>
+    /// Get metadata for fields in a specific table - following reference implementation
+    /// </summary>
+    public async Task<string> GetFieldMetadataByTableNameAsync(string tableName, string[] metadataFieldNames, string? conditions = null)
+    {
+        var cacheKey = $"GetFieldMetadataByTableName_{tableName}_{string.Join(",", metadataFieldNames)}_{conditions}";
+        if (_cache.TryGetValue(cacheKey, out string? cachedResult))
+        {
+            return cachedResult!;
+        }
+
+        var query = metadataFieldNames.Length > 0 ? $"SELECT {string.Join(",", metadataFieldNames)} FROM metadata.attribute" : $"SELECT * FROM metadata.attribute";
+        query += $" WHERE entitylogicalname = '{tableName}'";
+        if (!string.IsNullOrEmpty(conditions))
+        {
+            query += $" AND ({conditions.ToLower()})";
+        }
+        var result = await ExecuteSqlQueryAsync(query);
+        _cache.Set(cacheKey, result, DefaultCachingDuration);
+        return result;
+    }
+
+    /// <summary>
+    /// Retrieve rows for a specific table - following reference implementation
+    /// </summary>
+    public async Task<string> GetRowsForTableAsync(string tableName, string[] fieldNames, string? conditions = null, string? sortOrder = null, int? rowCount = 50)
+    {
+        var query = fieldNames.Length > 0 ? $"SELECT TOP({rowCount}) {string.Join(",", fieldNames)} FROM dbo.{tableName}" : $"SELECT TOP({rowCount}) * FROM dbo.{tableName}";
+        if (!string.IsNullOrEmpty(conditions))
+        {
+            query += $" WHERE ({conditions})";
+        }
+        if (!string.IsNullOrEmpty(sortOrder))
+        {
+            query += $" ORDER BY {sortOrder}";
+        }
+        var result = await ExecuteSqlQueryAsync(query);
+        return result;
+    }
+
+    /// <summary>
+    /// Convert FetchXml query to SQL query - following reference implementation
+    /// </summary>
+    public async Task<string> ConvertFetchXmlToSqlAsync(string fetchXml)
+    {
+        var result = await ExecuteSqlQueryAsync($"SELECT Response FROM FetchXMLToSQL('{fetchXml}',0)");
+        return result;
+    }
+
+    /// <summary>
+    /// Parse search query and map field-specific syntax to Dataverse column names
+    /// Supports syntax like: title:term, name:term, code:term, description:term
+    /// </summary>
+    private (string searchTerm, Dictionary<string, string> fieldMappings) ParseSearchQuery(string query)
+    {
+        var fieldMappings = new Dictionary<string, string>();
+        var searchTerm = query;
+
+        // Define field mappings from search syntax to actual column names
+        var syntaxMappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            // Title/Name mappings - all map to legalops_name
+            ["title"] = "legalops_name",
+            ["name"] = "legalops_name", 
+            ["matter"] = "legalops_name",
+            ["subject"] = "legalops_name",
+            
+            // Code mappings
+            ["code"] = "legalops_code",
+            ["matter_code"] = "legalops_code",
+            ["id"] = "legalops_code",
+            
+            // Description mappings
+            ["description"] = "legalops_descriptionbasic",
+            ["desc"] = "legalops_descriptionbasic",
+            ["summary"] = "legalops_descriptionbasic",
+            ["details"] = "legalops_descriptionbasic"
+        };
+
+        // Check for field-specific search patterns: field:term or "field:term"
+        var fieldSearchPatterns = new[]
+        {
+            @"(\w+):([""']?)([^""'\s]+)\2", // Matches field:term, field:"term", field:'term'
+            @"""(\w+):([^""]+)""",         // Matches "field:term with spaces"
+            @"'(\w+):([^']+)'"             // Matches 'field:term with spaces'
+        };
+
+        foreach (var pattern in fieldSearchPatterns)
+        {
+            var matches = System.Text.RegularExpressions.Regex.Matches(query, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            
+            foreach (System.Text.RegularExpressions.Match match in matches)
+            {
+                string fieldName, fieldValue;
+                
+                if (match.Groups.Count == 4) // field:term pattern
+                {
+                    fieldName = match.Groups[1].Value;
+                    fieldValue = match.Groups[3].Value;
+                }
+                else if (match.Groups.Count == 3) // quoted patterns
+                {
+                    fieldName = match.Groups[1].Value;
+                    fieldValue = match.Groups[2].Value;
+                }
+                else
+                {
+                    continue;
+                }
+
+                // Map the field name to the actual column name
+                if (syntaxMappings.TryGetValue(fieldName, out var columnName))
+                {
+                    fieldMappings[fieldValue] = columnName;
+                    
+                    // Remove the field:term pattern from the search term for cleaner logging
+                    searchTerm = query.Replace(match.Value, "").Trim();
+                }
+            }
+        }
+
+        // Handle special cases for natural language queries
+        if (!fieldMappings.Any())
+        {
+            // Check for natural language patterns like "matter name contains X"
+            var naturalLanguagePatterns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["matter name contains"] = "legalops_name",
+                ["title contains"] = "legalops_name",
+                ["name contains"] = "legalops_name",
+                ["code contains"] = "legalops_code",
+                ["description contains"] = "legalops_descriptionbasic"
+            };
+
+            foreach (var pattern in naturalLanguagePatterns)
+            {
+                if (query.Contains(pattern.Key, StringComparison.OrdinalIgnoreCase))
+                {
+                    var term = query.Replace(pattern.Key, "", StringComparison.OrdinalIgnoreCase).Trim();
+                    if (!string.IsNullOrEmpty(term))
+                    {
+                        fieldMappings[term] = pattern.Value;
+                        searchTerm = term;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Clean up quoted search terms
+        searchTerm = searchTerm.Trim('"', '\'').Trim();
+        
+        return (searchTerm, fieldMappings);
     }
 
     /// <summary>
@@ -224,7 +409,7 @@ public class DataverseService
             {
                 Id = ExtractRecordId(record, tableType),
                 Title = GetStringValue(record, "legalops_name") ?? "Untitled Matter",
-                Text = GetStringValue(record, "legalops_description") ?? GetStringValue(record, "legalops_code") ?? "No description available",
+                Text = GetStringValue(record, "legalops_descriptionbasic") ?? GetStringValue(record, "legalops_code") ?? "No description available",
                 Url = "https://fa-auae-dsdev-lgca-dig04.azurewebsites.net/api/HttpTrigger", // Will be updated when deployed
                 Metadata = new Dictionary<string, object>
                 {
@@ -245,16 +430,36 @@ public class DataverseService
 
     private string ExtractRecordId(Dictionary<string, object> record, string tableType)
     {
-        var idField = tableType == "matters" ? "legalops_matterid" : "legalops_mattersipid";
-        var id = GetStringValue(record, idField) ?? "";
+        // Use correct primary key field name from schema
+        var idField = "legalops_mattersid";
         
-        // Handle GUID format - remove curly braces if present
-        if (id.StartsWith("{") && id.EndsWith("}"))
+        if (record.TryGetValue(idField, out var value))
         {
-            id = id.Substring(1, id.Length - 2);
+            // If it's a complex object (JsonElement), try to extract the "id" property
+            if (value is JsonElement jsonElement && jsonElement.ValueKind == JsonValueKind.Object)
+            {
+                if (jsonElement.TryGetProperty("id", out var idProperty))
+                {
+                    var id = idProperty.GetString() ?? "";
+                    // Handle GUID format - remove curly braces if present
+                    if (id.StartsWith("{") && id.EndsWith("}"))
+                    {
+                        id = id.Substring(1, id.Length - 2);
+                    }
+                    return id;
+                }
+            }
+            
+            // Fallback to string conversion
+            var fallbackId = value?.ToString() ?? "";
+            if (fallbackId.StartsWith("{") && fallbackId.EndsWith("}"))
+            {
+                fallbackId = fallbackId.Substring(1, fallbackId.Length - 2);
+            }
+            return fallbackId;
         }
         
-        return id;
+        return "";
     }
 
     private string? GetStringValue(Dictionary<string, object> record, string key)
