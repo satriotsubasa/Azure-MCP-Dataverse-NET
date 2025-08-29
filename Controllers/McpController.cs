@@ -458,28 +458,42 @@ Enterprise .NET Web API MCP server for Microsoft Dataverse using SQL4CDS. Focus 
                 metadata = r.Metadata
             }).ToArray();
 
-            // Return content array format for MCP tool calls
-            var content = new[]
+            _logger.LogInformation("Search results count: {Count}", results.Length);
+            
+            if (results.Length > 0)
             {
-                new
-                {
-                    type = "text",
-                    text = results.Length > 0 
-                        ? $"Found {results.Length} legal matter(s):\n\n" + 
-                          string.Join("\n", results.Select((r, i) => 
-                              $"{i + 1}. **{r.title}** (ID: {r.id})\n   {r.text}\n   Code: {r.metadata["code"]}"))
-                        : "No matters matched your search query."
-                }
-            };
+                _logger.LogInformation("First result: ID={Id}, Title={Title}", results[0].id, results[0].title);
+            }
 
-            return new McpResponse
+            // Try returning as simple content text instead of content array
+            var responseText = results.Length > 0 
+                ? $"Found {results.Length} legal matter(s):\n\n" + 
+                  string.Join("\n", results.Select((r, i) => 
+                  {
+                      var code = r.metadata.TryGetValue("code", out var codeValue) ? codeValue?.ToString() ?? "" : "";
+                      return $"{i + 1}. **{r.title}** (ID: {r.id})\n   Description: {r.text}\n   Code: {code}";
+                  }))
+                : "No matters matched your search query.";
+
+            var response = new McpResponse
             {
                 Id = requestId,
                 Result = new
                 {
-                    content = content
+                    content = new[]
+                    {
+                        new
+                        {
+                            type = "text",
+                            text = responseText
+                        }
+                    }
                 }
             };
+
+            _logger.LogInformation("MCP Response being returned: {Response}", System.Text.Json.JsonSerializer.Serialize(response));
+            
+            return response;
         }
         catch (Exception ex)
         {
